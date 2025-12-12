@@ -45,7 +45,10 @@ const (
 
 var _ = SIGDescribe("Probe Stress", framework.WithSerial(), func() {
 	f := framework.NewDefaultFramework("probe-stress")
+	// LevelPrivileged is required because the stress tests create pods with many containers
+	// that may require elevated permissions for networking and resource allocation
 	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+
 
 	ginkgo.Context("HTTP liveness probes", func() {
 		ginkgo.It("should not cause unexpected container restarts under load", func(ctx context.Context) {
@@ -94,58 +97,6 @@ func runProbeStressTest(ctx context.Context, f *framework.Framework, pod *v1.Pod
 	}, probeStressWaitTime, 1*time.Second).Should(gomega.Succeed())
 
 	ginkgo.By("Test passed: no unexpected container restarts")
-}
-
-func createProbeStressPod(numContainers int, probeFn func(int) v1.Probe, cmdArgsFn func(int) []string) *v1.Pod {
-	podName := "probe-stress-" + string(uuid.NewUUID())
-	containers := make([]v1.Container, numContainers)
-
-	for i := 0; i < numContainers; i++ {
-		containerName := fmt.Sprintf("container-%d", i)
-		containers[i] = v1.Container{
-			Name:            containerName,
-			Image:           imageutils.GetE2EImage(imageutils.Agnhost),
-			Args:            cmdArgsFn(i),
-			LivenessProbe:   &v1.Probe{},
-			ImagePullPolicy: v1.PullIfNotPresent,
-		}
-		// Deep copy probe to avoid modifying shared pointer if that were ever passed (it's not here, but good practice)
-		// actually, we are generating new struct every time.
-		probe := probeFn(i)
-		containers[i].LivenessProbe = &probe
-		
-		// Ports extraction from probe for convenience, though strictly we might want to pass it.
-		// In the original code, ports matched the probe ports.
-		// Let's deduce ports from the probe to keep it simple or just make the generator handle it?
-		// The original code set Ports on the container.
-		// Let's refine the helper signature to be more flexible or just do what the original did.
-		
-		// Re-reading original code:
-		// HTTP: port 8080+i, args netexec --http-port=..., probe http get port
-		// TCP: port 8080+i, args netexec --http-port=..., probe tcp socket port
-		// GRPC: port 5000+i, args grpc-health-checking --port=..., probe grpc port
-		
-		// Common pattern:
-		// - Image is agnhost
-		// - Name is container-i
-		// - ImagePullPolicy
-		
-		// Variance:
-		// - Args
-		// - Ports (though derived from 'port' variable)
-		// - LivenessProbe
-	}
-	// Wait, I should not complicate the tool call with thinking. I will write the final clean code.
-	
-	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: podName,
-		},
-		Spec: v1.PodSpec{
-			Containers:    containers,
-			RestartPolicy: v1.RestartPolicyNever,
-		},
-	}
 }
 
 func createPodWithHTTPProbes(numContainers int) *v1.Pod {
